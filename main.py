@@ -1,194 +1,168 @@
+import pygame as pg
 import numpy as np
-import sounddevice as sd
-from pynput.keyboard import Listener, Key
+import matplotlib.pyplot as plt
+from modulators import am_synthesis, fm_synthesis
+from oscillators import sine_osc, square_osc, triangular_osc
+from envelopes import apply_envelope
+
+pg.init()
+pg.mixer.init()
+screen = pg.display.set_mode((1280, 620))  # 1280, 720
+font = pg.font.SysFont("Impact", 24)  # 48
+
+waves = []
+graph_wave_index = 0
+connection_sequence = []
+adsl_config = [0.2, 0.1, 0.7, 1.0]  # [1.0, 0.5, 0.7, 1.0]
+
+connection_sequence.append([sine_osc, "oscillator", "plus"])
+connection_sequence.append([square_osc, "oscillator", "plus"])
+connection_sequence.append([triangular_osc, "oscillator", "plus"])
+connection_sequence.append([fm_synthesis, "modulator", 2, 1])
+connection_sequence.append([am_synthesis, "modulator", 2, 1])
 
 
-def main():
-    def press_on(key):
-        print("Press ON: {}".format(key))
+def synth(frequency, duration=1.5, sampling_rate=44100):
+    arr = connection_sequence[0][0](frequency=frequency, duration=duration,
+                                    sample_rate=sampling_rate)
 
-        if hasattr(key, 'char') and key.char == 'a':
-            play_sound()
+    for i in range(len(connection_sequence) - 1):
+        if (connection_sequence[i + 1][1] == "oscillator"):
+            if (connection_sequence[i + 1][2] == "plus"):
+                arr = arr + connection_sequence[i + 1][0](frequency=frequency, duration=duration,
+                                                          sample_rate=sampling_rate)
+            else:
+                arr = arr - connection_sequence[i + 1][0](frequency=frequency, duration=duration,
+                                                          sample_rate=sampling_rate)
+        elif (connection_sequence[i + 1][1] == "modulator"):
+            mod_freq = connection_sequence[i + 1][2]
+            arr = connection_sequence[i +
+                                      1][0](mod_freq, arr, connection_sequence[i + 1][3])
 
-    def press_off(key):
-        print("Press OFF: {}".format(key))
-        sd.stop()
+    arr = apply_envelope(arr, adsl_config)
 
-        if key == Key.esc:
-            return False
+    waves.append(arr)
 
-    with Listener(on_press=press_on, on_release=press_off) as listener:  # type: ignore
-        listener.join()
+    sound = np.asarray([32767 * arr, 32767 * arr]).T.astype(np.int16)
 
-
-def play_sound():
-    # Generate and play a sound
-    # sine1 = sine_tone(200, 1, 0.6)
-    # sine2 = sine_tone(400, 1, 0.3)
-    # sine3 = sine_tone(800, 1, 0.2)
-
-    # Generate mupltiple sine waves with varying frequencies and amplitudes
-    # sines = [sine_tone(frequency=200 * i, amplitude=0.7 / i)
-    #          for i in range(1, 31, 2)]
-
-    # mysound = sum(sines)
-    # mysound = sum([sine1, sine2, sine3])
-
-    # my_sound = sine_tone(frequency=300, duration=0.3)
-    # my_sound = apply_envelope(my_sound, [0.5, 0.2, 0.6, 0.5])
-    # my_sound = apply_envelope(my_sound, [0.02, 0.1, 0.3, 0.1])
-    # my_sound = apply_envelope(my_sound, [1.0, 0.5, 0.7, 1.0])
-
-    # Create a modulator wave
-    my_modulator = sine_tone(3, 3)
-
-    # Apply amplitude modulation
-    # am_sound = am_synthesis(220, my_modulator)
-    # am_sound = am_synthesis(230, am_sound)
-
-    # Apply frequency modulation
-    # fm_sound = fm_synthesis(220, my_modulator)
-
-    # Apply modulation
-    modulated_sound = am_synthesis(2, my_modulator)
-    modulated_sound = am_synthesis(440, modulated_sound)
-    modulated_sound = fm_synthesis(217, modulated_sound, modulation_index=5)
-    modulated_sound = fm_synthesis(2, modulated_sound)
-    modulated_sound = am_synthesis(110, modulated_sound)
-    modulated_sound = fm_synthesis(220, modulated_sound, modulation_index=5)
-
-    modulated_sound = apply_envelope(modulated_sound, [1.0, 0.5, 0.7, 1.0])
-
-    sd.play(modulated_sound)
-    sd.wait()
-
-
-def sine_tone(
-        frequency: int = 440,
-        duration: float = 1.0,
-        amplitude: float = 0.5,
-        sample_rate: int = 44100
-) -> np.ndarray:
-    """Generate a sine tone"""
-
-    # Calculate the number of samples needed
-    n_samples = int(duration * sample_rate)
-
-    # Create an array of time points
-    time_points = np.linspace(0, duration, n_samples, False)
-
-    # Create the sine wave
-    sine = np.sin(2 * np.pi * frequency * time_points)
-
-    # Scale by amplitude
-    sine *= amplitude
-
-    return sine
-
-
-def white_noise(duration: float = 1.0, amplitude: float = 0.5, sample_rate: int = 44100) -> np.ndarray:
-    """Generate white noise"""
-
-    # Calculate the number of samples needed
-    n_samples = int(duration * sample_rate)
-
-    # Generate white noise with values between -1 and 1
-    noise = np.random.uniform(-1, 1, n_samples)
-
-    # Scale by amplitude
-    noise *= amplitude
-
-    return noise
-
-
-def apply_envelope(sound: np.ndarray, adsr: list, sample_rate: int = 44100) -> np.ndarray:
-    """Apply an ADSR envelope
-    A, D, R in time in seconds
-    S in % volume
-    """
-
-    # Copy sound to prevent modifyng the original
-    sound = sound.copy()
-
-    # Calculate the number of samples for each stage
-    attack_samples = int(adsr[0] * sample_rate)
-    decay_samples = int(adsr[1] * sample_rate)
-    release_samples = int(adsr[3] * sample_rate)
-    sustain_samples = len(sound) - (attack_samples +
-                                    decay_samples + release_samples)
-
-    # Attack
-    sound[:attack_samples] *= np.linspace(0, 1, attack_samples)
-
-    # Decay
-    sound[attack_samples:attack_samples +
-          decay_samples] *= np.linspace(1, adsr[2], decay_samples)
-
-    # Sustain
-    sound[attack_samples + decay_samples:attack_samples +
-          decay_samples + sustain_samples] *= adsr[2]
-
-    # Release
-    sound[attack_samples + decay_samples +
-          sustain_samples:] *= np.linspace(adsr[2], 0, release_samples)
-
-    # print(attack_samples, decay_samples, release_samples, sustain_samples)
+    sound = pg.sndarray.make_sound(sound.copy())
 
     return sound
 
 
-def am_synthesis(
-    carrier_frequency: float,
-    modulator_wave: np.ndarray,
-    modulation_index: float = 0.5,
-    amplitude: float = 0.5,
-    sample_rate: int = 44100
-) -> np.ndarray:
-    """Generates an AM synthesis waveform"""
+keylist = '123456789qwertyuioasdfghjklzxcvbnm,.'
+notes_file = open("noteslist.txt")
+file_contents = notes_file.read()
+notes_file.close()
+noteslist = file_contents.splitlines()
 
-    # Calculate the total number of samples needed
-    total_samples = len(modulator_wave)
-
-    # Create an array of time points
-    time_points = np.arange(total_samples) / sample_rate
-
-    # Generate the carrier wave
-    carrier_wave = np.sin(2 * np.pi * carrier_frequency * time_points)
-
-    # Apply the AM synthesis formula
-    am_wave = (1 + modulation_index * modulator_wave) * carrier_wave
-
-    # Normalize to an specified amplitude
-    max_amplitude = np.max(np.abs(am_wave))
-    am_wave = amplitude * (am_wave / max_amplitude)
-
-    return am_wave
+keymod = '0-='
+notes = {}  # dict to store samples
+freq = 16.3516  # start frequency
+posx, posy = 12, 12  # start position 25 25
 
 
-def fm_synthesis(
-    carrier_frequency: float,
-    modulator_wave: np.ndarray,
-    modulation_index: float = 3,
-    amplitude: float = 0.5,
-    sample_rate: int = 44100
-) -> np.ndarray:
-    """Generate an FM synthesis waveform"""
+for i in range(len(noteslist)):
+    mod = int(i / 36)
+    key = keylist[i - mod * 36] + str(mod)
+    sample = synth(freq)
 
-    # Calculate the total number of samples needed
-    total_samples = len(modulator_wave)
+    color = np.array([np.sin(i/25 + 1.7) * 130 + 125, np.sin(i/30 - 0.21)
+                     * 215 + 40, np.sin(i/25 + 3.7) * 130 + 125])
+    color = np.clip(color, 0, 255)
+    notes[key] = [sample, noteslist[i], freq,
+                  (posx, posy), 255 * color / max(color), i]
+    notes[key][0].set_volume(0.33)
+    # notes[key][0].play()
+    # notes[key][0].fadeout(100)
+    freq = freq * 1.0594630943592953  # * 2 ** (1/12)
+    posx = posx + 140
+    if posx > 1220:
+        posx, posy = 12, posy + 26  # 56
 
-    # Create an array of time points
-    time_points = np.arange(total_samples) / sample_rate
-
-    # Create the FM signal
-    fm_wave = np.sin(2 * np.pi * carrier_frequency *
-                     time_points + modulation_index * modulator_wave)
-
-    # Normalize to an specified amplitude
-    max_amplitude = np.max(np.abs(fm_wave))
-    fm_wave = amplitude * (fm_wave / max_amplitude)
-
-    return fm_wave
+    screen.blit(font.render(notes[key][1], 0, notes[key][4]), notes[key][3])
+    pg.display.update()
 
 
-main()
+running = 1
+mod = 1
+pg.display.set_caption(
+    "Synth - Change range: 0 - = // Play with keys: " + keylist)
+
+# Constants
+# CHUNK = 1024 * 2
+CHUNK = 44100 * 1.5
+
+
+# Figure and axes
+fig, (ax, ax2) = plt.subplots(2, figsize=(12, 8))
+
+# Variable for plotting
+x = np.arange(0, 2 * CHUNK, 2)
+
+# Create a line object with random data
+# line, = ax.plot(x, np.random.rand(CHUNK), "-", lw=2)
+line, = ax.plot(x, waves[graph_wave_index], "-", lw=2)
+
+
+# Axes formatting
+ax.set_title("Waveform")
+ax.set_xlabel("Samples")
+ax.set_ylabel("Volume")
+# ax.set_ylim(-3000, 3000)
+ax.set_xlim(0, 2 * CHUNK)
+
+plt.setp(ax, xticks=[0, CHUNK, 2 * CHUNK])
+
+# Show the plot
+plt.show(block=False)
+
+keypresses = []
+while running:
+    for event in pg.event.get():
+        if event.type == pg.QUIT or (event.type == pg.KEYDOWN and event.key == pg.K_ESCAPE):
+            running = False
+        if event.type == pg.KEYDOWN:
+            key = str(event.unicode)
+            if key in keymod:
+                mod = keymod.index(str(event.unicode))
+            elif key in keylist:
+                key = key + str(mod)
+                notes[key][0].play()
+                # # print(notes[key][5])
+                # graph_wave_index = notes[key][5]
+                # line.set_ydata(waves[graph_wave_index])
+                # print(waves[graph_wave_index])
+                # fig.canvas.flush_events()
+                # fig.canvas.draw()
+                # fig.canvas.flush_events()
+                # # frame_count += 1
+
+                # fig.show()
+
+                keypresses.append([1, notes[key][1], pg.time.get_ticks()])
+                screen.blit(font.render(
+                    notes[key][1], 0, (255, 255, 255)), notes[key][3])
+        if event.type == pg.KEYUP and str(event.unicode) != '' and str(event.unicode) in keylist:
+            key = str(event.unicode) + str(mod)
+            notes[key][0].fadeout(100)
+            keypresses.append([0, notes[key][1], pg.time.get_ticks()])
+            screen.blit(font.render(
+                notes[key][1], 0, notes[key][4]), notes[key][3])
+
+    pg.display.update()
+
+# pg.display.set_caption("Exporting sound sequence")
+# if len(keypresses) > 1:
+#     for i in range(len(keypresses)-1):
+#         keypresses[-i-1][2] = keypresses[-i-1][2] - keypresses[-i-2][2]
+#     keypresses[0][2] = 0  # first at zero
+
+#     with open("test.txt", "w") as file:
+#         for i in range(len(keypresses)):
+#             # separate lines for readability
+#             file.write(str(keypresses[i])+'\n')
+#     file.close()
+
+pg.mixer.quit()
+pg.quit()

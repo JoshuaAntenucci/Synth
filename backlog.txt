@@ -1,0 +1,20 @@
+[x] Apply AM modulator
+[x] Apply FM modulator
+[x] Apply ADSR envelopes
+[x] Dividir oscilador de Seno
+[x] Dividir oscilador de onda cuadrada
+[x] Dividir oscilador de triangulo
+[x] Visualizar onda final
+[x] Conectar osciladores
+[x] Conectar moduladores AM y FM
+[x] Aplicar envelope ADSR
+
+[ ] Dividir oscilador de diente de sierra
+[ ] Crear osciladores en UI
+[ ] Crear moduladores AM y FM en UI
+[ ] Configurar envelope ADSL en UI
+
+* Dividir el sample de sonido entre AD, S y R para:
+  - On key press run AD
+  - Key press sostenido y AD terminado, play S
+  - Key up run R
